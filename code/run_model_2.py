@@ -10,13 +10,12 @@ from functools import cmp_to_key
 
 class Config():
     def __init__(self):
-        self.epoches = 300
-        self.input_dimension = 16
-        self.learning_rate = 0.5
+        self.epoches = 500
+        self.learning_rate = 30
         self.dataset_path = "data/original_dataset.json"
         self.saved_path = "code/saved/"
         self.test_dataset_path = "data/original_dataset.json"
-        self.test_model = "regression_model_1000.pt"
+        self.test_model = "term_structure_model_1000.pt"
 
 class TermStructureModel(nn.Module):
     def __init__(self,input_features) -> None:
@@ -34,13 +33,18 @@ class TermStructureModel(nn.Module):
                 cur_date = year + "/" + str(month)
                 self.date2index[cur_date] = index_cnt
                 index_cnt += 1
-
         self.term_matrix = nn.Parameter(torch.randn(52,5)) # 2017/7 - 2021/10 (6 + 12+ 12 + 12 + 10 = 52 ) * 5 (1Y,9M,6M,3M,1M)
         self.sigmoid = nn.Sigmoid()
+    def percentage_function(self,matrix):
+        term_matrix = self.sigmoid(matrix)
+        term_sum = torch.sum(term_matrix,1).unsqueeze(1)
+        term_matrix  = term_matrix / term_sum
+        return term_matrix
 
     def forward(self,cur_date):
         cur_date_index = self.date2index[cur_date]
-        term_matrix = self.sigmoid(self.term_matrix)
+        term_matrix = self.percentage_function(self.term_matrix)
+
         weight_1Y = term_matrix[cur_date_index -12][0]
         fasheng_1Y = self.input_features[cur_date_index -12][0]
 
@@ -74,6 +78,8 @@ def train(config,train_features,labels,time_list):
 
     optimizer = torch.optim.SGD(model.parameters(), lr=config.learning_rate)
     model.train()
+    print(model.percentage_function(model.term_matrix))
+
     for epoch in  range(config.epoches): 
         epoch_loss = 0
         for index,each_case in enumerate(time_list):
@@ -83,17 +89,16 @@ def train(config,train_features,labels,time_list):
             epoch_loss += cur_loss
 
         epoch_loss /= samples_num
+        print(f"epoch:{epoch} cur_epoch_loss:{epoch_loss.item()}")
         optimizer.zero_grad()
         epoch_loss.backward()
         optimizer.step()    
-        print(f"epoch:{epoch} cur_epoch_loss:{epoch_loss.item()}")
     #torch.save(model.state_dict(),config.saved_path+ f"regression_model_{config.epoches}.pt")
 
     model.eval()
-    print(nn.Sigmoid()(model.term_matrix))
+    print("after trainning : ------------------")
+    print(model.percentage_function(model.term_matrix))
     return model,loss_function
-
-
 
 class DataLoader():
     def __init__(self,dataset_path):
@@ -129,6 +134,7 @@ class DataLoader():
         norm_output_matrix = output_scaler.fit_transform(output_matrix)
         #output = output_scaler.inverse_transform(norm_output_matrix)
         print(time_list)
+        #return self.to_tensor(norm_input_matrix),self.to_tensor(norm_output_matrix),input_scaler,output_scaler,time_list
         return self.to_tensor(norm_input_matrix),self.to_tensor(norm_output_matrix),input_scaler,output_scaler,time_list
 
 def run():
